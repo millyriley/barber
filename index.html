@@ -483,10 +483,6 @@
             video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } }
           });
           streamRef.current = stream;
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            await videoRef.current.play();
-          }
           setCameraOn(true);
         } catch (e) {
           setCameraError(e.name === 'NotAllowedError' ? 'Camera access denied. Check your browser permissions.' : 'Could not access camera. Make sure no other app is using it.');
@@ -494,6 +490,14 @@
           setLoading(false);
         }
       };
+
+      // Attach stream to video element once both exist
+      useEffect(() => {
+        if (cameraOn && videoRef.current && streamRef.current) {
+          videoRef.current.srcObject = streamRef.current;
+          videoRef.current.play().catch(() => {});
+        }
+      }, [cameraOn]);
 
       const stopCamera = () => {
         if (streamRef.current) {
