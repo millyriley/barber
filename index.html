@@ -122,16 +122,22 @@
       if (window.tf && window.faceLandmarksDetection) { resolve(); return; }
       const urls = [
         'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core',
+        'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter',
         'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl',
         'https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection'
       ];
       let i = 0;
       const next = () => {
-        if (i >= urls.length) { resolve(); return; }
+        if (i >= urls.length) {
+          console.log('[Fade AR] All scripts loaded, tf:', !!window.tf, 'fld:', !!window.faceLandmarksDetection);
+          resolve();
+          return;
+        }
         const s = document.createElement('script');
         s.src = urls[i];
-        s.onload = () => { i++; next(); };
-        s.onerror = () => reject(new Error('Failed to load AR scripts'));
+        s.crossOrigin = 'anonymous';
+        s.onload = () => { console.log('[Fade AR] Loaded:', urls[i]); i++; next(); };
+        s.onerror = () => { console.error('[Fade AR] Failed:', urls[i]); reject(new Error('Failed to load: ' + urls[i])); };
         document.head.appendChild(s);
       };
       next();
@@ -633,23 +639,33 @@
 
       const cut = CUTS[idx];
 
+      const [arError, setArError] = useState('');
+
       const loadModel = async () => {
         if (detectorRef.current) { setModelStatus('ready'); return true; }
         setModelStatus('loading');
+        setArError('');
         try {
+          console.log('[Fade AR] Loading scripts...');
           await loadTFScripts();
+          if (!window.tf) throw new Error('TensorFlow.js failed to initialize');
+          if (!window.faceLandmarksDetection) throw new Error('Face detection library failed to load');
+          console.log('[Fade AR] Setting up WebGL backend...');
           await tf.setBackend('webgl');
           await tf.ready();
+          console.log('[Fade AR] Creating face detector...');
           const m = faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
           detectorRef.current = await faceLandmarksDetection.createDetector(m, {
             runtime: 'tfjs',
             maxFaces: 1,
             refineLandmarks: false
           });
+          console.log('[Fade AR] Model ready!');
           setModelStatus('ready');
           return true;
         } catch (e) {
-          console.error('Face mesh failed:', e);
+          console.error('[Fade AR] Failed:', e);
+          setArError(e.message || 'Unknown error');
           setModelStatus('failed');
           return false;
         }
@@ -722,9 +738,19 @@
               const faces = await detectorRef.current.estimateFaces(video, { flipHorizontal: false });
               ctx.clearRect(0, 0, canvas.width, canvas.height);
               if (faces.length > 0) {
-                drawHairOverlay(ctx, faces[0].keypoints, canvas.width, canvas.height, CUTS[idxRef.current].id);
+                const kps = faces[0].keypoints;
+                drawHairOverlay(ctx, kps, canvas.width, canvas.height, CUTS[idxRef.current].id);
+                // Debug: draw key landmark dots (forehead, temples, chin)
+                ctx.fillStyle = 'rgba(232,168,56,0.6)';
+                [10, 234, 454, 152].forEach(li => {
+                  if (kps[li]) {
+                    ctx.beginPath();
+                    ctx.arc(kps[li].x, kps[li].y, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                  }
+                });
               }
-            } catch (e) { /* continue on error */ }
+            } catch (e) { console.error('[Fade AR] Detection error:', e); }
           }
 
           rafRef.current = requestAnimationFrame(loop);
@@ -795,15 +821,22 @@
             </div>
           )}
 
-          {/* Fallback: show reference photo if model failed */}
+          {/* Fallback: show reference photo + error if model failed */}
           {modelStatus === 'failed' && (
-            <div className="absolute top-24 right-3 w-28" style={{zIndex:10}}>
-              <div className="rounded-xl overflow-hidden shadow-2xl border-2 border-white/20">
-                <Img src={cut.photos[0]} alt={cut.name} className="aspect-[3/4]" />
+            <>
+              <div className="absolute top-20 left-0 right-0 flex justify-center" style={{zIndex:15}}>
+                <div className="bg-red-500/20 backdrop-blur-sm px-3 py-1.5 rounded-full flex items-center gap-1.5 max-w-[80%]">
+                  <span className="text-red-300 text-[10px] font-medium truncate">AR unavailable{arError ? ': ' + arError : ''}</span>
+                </div>
               </div>
-              <p className="text-white text-[10px] font-semibold text-center mt-1.5 drop-shadow">{cut.name}</p>
-              <p className="text-white/40 text-[9px] text-center mt-0.5">Reference</p>
-            </div>
+              <div className="absolute top-28 right-3 w-28" style={{zIndex:10}}>
+                <div className="rounded-xl overflow-hidden shadow-2xl border-2 border-white/20">
+                  <Img src={cut.photos[0]} alt={cut.name} className="aspect-[3/4]" />
+                </div>
+                <p className="text-white text-[10px] font-semibold text-center mt-1.5 drop-shadow">{cut.name}</p>
+                <p className="text-white/40 text-[9px] text-center mt-0.5">Reference</p>
+              </div>
+            </>
           )}
 
           {/* Top bar */}
