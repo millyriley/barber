@@ -117,30 +117,18 @@
     const STYLE_TAGS = ['classic','modern','trendy','bold','casual','professional','formal'];
     const MAINT_LEVELS = ['low','medium','high'];
 
-    /* ── AR FACE MESH HELPERS ────────────────────────────────── */
-    const loadTFScripts = () => new Promise((resolve, reject) => {
-      if (window.tf && window.faceLandmarksDetection) { resolve(); return; }
-      const urls = [
-        'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core',
-        'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter',
-        'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl',
-        'https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection'
-      ];
-      let i = 0;
-      const next = () => {
-        if (i >= urls.length) {
-          console.log('[Fade AR] All scripts loaded, tf:', !!window.tf, 'fld:', !!window.faceLandmarksDetection);
-          resolve();
-          return;
-        }
-        const s = document.createElement('script');
-        s.src = urls[i];
-        s.crossOrigin = 'anonymous';
-        s.onload = () => { console.log('[Fade AR] Loaded:', urls[i]); i++; next(); };
-        s.onerror = () => { console.error('[Fade AR] Failed:', urls[i]); reject(new Error('Failed to load: ' + urls[i])); };
-        document.head.appendChild(s);
+    /* ── AR FACE MESH (MediaPipe Direct) ────────────────────── */
+    const loadFaceMeshScript = () => new Promise((resolve, reject) => {
+      if (window.FaceMesh) { resolve(); return; }
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js';
+      s.crossOrigin = 'anonymous';
+      s.onload = () => {
+        console.log('[Fade AR] FaceMesh script loaded, FaceMesh:', !!window.FaceMesh);
+        resolve();
       };
-      next();
+      s.onerror = () => reject(new Error('Failed to load FaceMesh script'));
+      document.head.appendChild(s);
     });
 
     const HAIR_SHAPES = {
@@ -162,11 +150,15 @@
       'two-block':     { topVol:0.50, sideExt:0.00, fringe:0.10, tex:'smooth', sharp:false, partX:0 },
     };
 
-    function drawHairOverlay(ctx, keypoints, cw, ch, styleId) {
+    // landmarks = array of {x,y,z} normalized 0-1, cw/ch = canvas pixel dims
+    function drawHairOverlay(ctx, landmarks, cw, ch, styleId) {
       const s = HAIR_SHAPES[styleId];
-      if (!s || !keypoints || keypoints.length < 468) return;
-      const kp = (i) => keypoints[i];
-      const forehead = kp(10), lTemple = kp(234), rTemple = kp(454), chin = kp(152);
+      if (!s || !landmarks || landmarks.length < 468) return;
+
+      // Convert normalized coords to pixels
+      const p = (i) => ({ x: landmarks[i].x * cw, y: landmarks[i].y * ch });
+      const forehead = p(10), lTemple = p(234), rTemple = p(454), chin = p(152);
+
       const faceW = Math.hypot(rTemple.x - lTemple.x, rTemple.y - lTemple.y);
       const faceH = Math.hypot(chin.x - forehead.x, chin.y - forehead.y);
       if (faceW < 20 || faceH < 20) return;
@@ -240,8 +232,7 @@
         for (let i = 0; i < 14; i++) {
           const tx = -hw * 0.5 + (i / 14) * hw;
           const ty = -topH * 0.25 - (i % 3) * topH * 0.2;
-          ctx.beginPath();
-          ctx.moveTo(tx, ty);
+          ctx.beginPath(); ctx.moveTo(tx, ty);
           ctx.lineTo(tx + hw * 0.06 * ((i % 2) ? 1 : -1), ty + faceH * 0.06);
           ctx.stroke();
         }
@@ -252,9 +243,7 @@
           const tx = -hw * 0.5 + (i % 6) * hw * 0.2;
           const ty = -topH * 0.15 - Math.floor(i / 6) * topH * 0.2;
           const r = faceW * 0.018 + (i % 3) * faceW * 0.008;
-          ctx.beginPath();
-          ctx.arc(tx, ty, r, 0, Math.PI * 1.6);
-          ctx.stroke();
+          ctx.beginPath(); ctx.arc(tx, ty, r, 0, Math.PI * 1.6); ctx.stroke();
         }
       }
 
@@ -264,9 +253,7 @@
         ctx.lineWidth = Math.max(1.5, faceW * 0.008);
         ctx.beginPath();
         const ey = fringeY > 0 ? fringeY : 0;
-        ctx.moveTo(lx * 0.95, ey);
-        ctx.lineTo(rx * 0.95, ey);
-        ctx.stroke();
+        ctx.moveTo(lx * 0.95, ey); ctx.lineTo(rx * 0.95, ey); ctx.stroke();
       }
 
       ctx.restore();
@@ -607,15 +594,17 @@
       const [cameraOn, setCameraOn] = useState(false);
       const [loading, setLoading] = useState(false);
       const [cameraError, setCameraError] = useState('');
-      const [modelStatus, setModelStatus] = useState('idle'); // idle | loading | ready | failed
+      const [modelStatus, setModelStatus] = useState('idle');
+      const [arError, setArError] = useState('');
       const videoRef = useRef(null);
       const canvasRef = useRef(null);
       const streamRef = useRef(null);
-      const detectorRef = useRef(null);
+      const meshRef = useRef(null);
       const rafRef = useRef(null);
       const touchStartX = useRef(null);
       const idxRef = useRef(0);
-      const frameCount = useRef(0);
+      const lastFaceRef = useRef(null);
+      const sendingRef = useRef(false);
 
       useEffect(() => { idxRef.current = idx; }, [idx]);
 
@@ -627,9 +616,11 @@
         }
       }, [tryStartId, setTryStartId]);
 
+      // Cleanup on unmount
       useEffect(() => {
         return () => {
           if (rafRef.current) cancelAnimationFrame(rafRef.current);
+          if (meshRef.current) { try { meshRef.current.close(); } catch(e){} meshRef.current = null; }
           if (streamRef.current) {
             streamRef.current.getTracks().forEach(t => t.stop());
             streamRef.current = null;
@@ -639,35 +630,53 @@
 
       const cut = CUTS[idx];
 
-      const [arError, setArError] = useState('');
-
-      const loadModel = async () => {
-        if (detectorRef.current) { setModelStatus('ready'); return true; }
+      // Initialize MediaPipe FaceMesh
+      const initFaceMesh = async () => {
+        if (meshRef.current) { setModelStatus('ready'); return; }
         setModelStatus('loading');
         setArError('');
         try {
-          console.log('[Fade AR] Loading scripts...');
-          await loadTFScripts();
-          if (!window.tf) throw new Error('TensorFlow.js failed to initialize');
-          if (!window.faceLandmarksDetection) throw new Error('Face detection library failed to load');
-          console.log('[Fade AR] Setting up WebGL backend...');
-          await tf.setBackend('webgl');
-          await tf.ready();
-          console.log('[Fade AR] Creating face detector...');
-          const m = faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
-          detectorRef.current = await faceLandmarksDetection.createDetector(m, {
-            runtime: 'tfjs',
-            maxFaces: 1,
-            refineLandmarks: false
+          console.log('[Fade AR] Loading MediaPipe FaceMesh...');
+          await loadFaceMeshScript();
+
+          if (!window.FaceMesh) {
+            throw new Error('FaceMesh class not found after script load');
+          }
+
+          console.log('[Fade AR] Creating FaceMesh instance...');
+          const fm = new FaceMesh({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
           });
-          console.log('[Fade AR] Model ready!');
+
+          fm.setOptions({
+            maxNumFaces: 1,
+            refineLandmarks: false,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+          });
+
+          fm.onResults((results) => {
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+              lastFaceRef.current = results.multiFaceLandmarks[0];
+            } else {
+              lastFaceRef.current = null;
+            }
+            sendingRef.current = false;
+          });
+
+          // Warm up the model with a tiny canvas
+          console.log('[Fade AR] Warming up model...');
+          const warmup = document.createElement('canvas');
+          warmup.width = 10; warmup.height = 10;
+          await fm.send({ image: warmup });
+
+          meshRef.current = fm;
+          console.log('[Fade AR] FaceMesh ready!');
           setModelStatus('ready');
-          return true;
         } catch (e) {
-          console.error('[Fade AR] Failed:', e);
-          setArError(e.message || 'Unknown error');
+          console.error('[Fade AR] Init failed:', e);
+          setArError(e.message || 'Failed to load face tracking');
           setModelStatus('failed');
-          return false;
         }
       };
 
@@ -685,7 +694,8 @@
           }
           streamRef.current = stream;
           setCameraOn(true);
-          loadModel();
+          // Start loading face mesh in parallel
+          initFaceMesh();
         } catch (e) {
           setCameraError(
             e.name === 'NotAllowedError' ? 'Camera access denied. Check your browser permissions.' :
@@ -698,7 +708,7 @@
         }
       };
 
-      // Attach stream and start detection loop
+      // Attach stream and start render loop when camera turns on
       useEffect(() => {
         if (cameraOn && videoRef.current && streamRef.current) {
           const video = videoRef.current;
@@ -710,7 +720,8 @@
             }
           };
           video.play().then(() => {
-            startDetection();
+            console.log('[Fade AR] Video playing, starting render loop');
+            startRenderLoop();
           }).catch((e) => {
             setCameraError('Failed to start video: ' + e.message);
             setCameraOn(false);
@@ -718,39 +729,44 @@
         }
       }, [cameraOn]);
 
-      const startDetection = () => {
-        const loop = async () => {
+      const startRenderLoop = () => {
+        let frameNum = 0;
+        const loop = () => {
           const video = videoRef.current;
           const canvas = canvasRef.current;
           if (!video || !canvas) { rafRef.current = requestAnimationFrame(loop); return; }
+
           const ctx = canvas.getContext('2d');
 
-          if (canvas.width !== video.videoWidth && video.videoWidth > 0) {
+          // Ensure canvas matches video
+          if (video.videoWidth > 0 && (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight)) {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
           }
 
-          frameCount.current++;
+          frameNum++;
 
-          // Run detection every 2nd frame for performance
-          if (detectorRef.current && video.readyState >= 2 && frameCount.current % 2 === 0) {
-            try {
-              const faces = await detectorRef.current.estimateFaces(video, { flipHorizontal: false });
-              ctx.clearRect(0, 0, canvas.width, canvas.height);
-              if (faces.length > 0) {
-                const kps = faces[0].keypoints;
-                drawHairOverlay(ctx, kps, canvas.width, canvas.height, CUTS[idxRef.current].id);
-                // Debug: draw key landmark dots (forehead, temples, chin)
-                ctx.fillStyle = 'rgba(232,168,56,0.6)';
-                [10, 234, 454, 152].forEach(li => {
-                  if (kps[li]) {
-                    ctx.beginPath();
-                    ctx.arc(kps[li].x, kps[li].y, 4, 0, Math.PI * 2);
-                    ctx.fill();
-                  }
-                });
+          // Send frame to FaceMesh every 3rd frame (avoid overload on mobile)
+          if (meshRef.current && !sendingRef.current && video.readyState >= 2 && frameNum % 3 === 0) {
+            sendingRef.current = true;
+            meshRef.current.send({ image: video }).catch(() => { sendingRef.current = false; });
+          }
+
+          // Draw overlay using latest detected face
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          if (lastFaceRef.current) {
+            drawHairOverlay(ctx, lastFaceRef.current, canvas.width, canvas.height, CUTS[idxRef.current].id);
+
+            // Debug: draw 4 key landmark dots (gold circles on forehead, temples, chin)
+            ctx.fillStyle = 'rgba(232,168,56,0.7)';
+            [10, 234, 454, 152].forEach(li => {
+              if (lastFaceRef.current[li]) {
+                const lm = lastFaceRef.current[li];
+                ctx.beginPath();
+                ctx.arc(lm.x * canvas.width, lm.y * canvas.height, 4, 0, Math.PI * 2);
+                ctx.fill();
               }
-            } catch (e) { console.error('[Fade AR] Detection error:', e); }
+            });
           }
 
           rafRef.current = requestAnimationFrame(loop);
@@ -765,6 +781,7 @@
           streamRef.current.getTracks().forEach(t => t.stop());
           streamRef.current = null;
         }
+        lastFaceRef.current = null;
         setCameraOn(false);
       };
 
@@ -779,6 +796,7 @@
         touchStartX.current = null;
       };
 
+      // Pre-camera screen
       if (!cameraOn) return (
         <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center fade-in pb-24">
           <div className="w-24 h-24 rounded-full bg-brand-50 flex items-center justify-center mb-5 pulse-glow">
@@ -793,16 +811,17 @@
         </div>
       );
 
+      // AR camera view
       return (
         <div className="fixed inset-0 bg-black z-40 flex flex-col" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-          {/* Video + Canvas overlay stack */}
+          {/* Video + Canvas overlay (both mirrored) */}
           <video ref={videoRef} autoPlay playsInline muted style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',transform:'scaleX(-1)',zIndex:1}} />
           <canvas ref={canvasRef} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',transform:'scaleX(-1)',zIndex:2,pointerEvents:'none'}} />
 
           {/* Gradient overlay */}
           <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-black/70 pointer-events-none" style={{zIndex:3}} />
 
-          {/* Model status indicators */}
+          {/* Status badges */}
           {modelStatus === 'loading' && (
             <div className="absolute top-20 left-0 right-0 flex justify-center" style={{zIndex:15}}>
               <div className="bg-black/60 backdrop-blur-sm px-4 py-2 rounded-full flex items-center gap-2">
@@ -821,7 +840,6 @@
             </div>
           )}
 
-          {/* Fallback: show reference photo + error if model failed */}
           {modelStatus === 'failed' && (
             <>
               <div className="absolute top-20 left-0 right-0 flex justify-center" style={{zIndex:15}}>

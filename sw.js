@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fade-v3';
+const CACHE_NAME = 'fade-v4';
 const PRECACHE = ['/barber/', '/barber/index.html'];
 
 self.addEventListener('install', e => {
