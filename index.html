@@ -131,31 +131,406 @@
       document.head.appendChild(s);
     });
 
-    const HAIR_SHAPES = {
-      'low-fade':      { topVol:0.30, sideExt:0.04, fringe:0.00, tex:'smooth', sharp:false, partX:0 },
-      'mid-fade':      { topVol:0.35, sideExt:0.03, fringe:0.00, tex:'smooth', sharp:false, partX:0 },
-      'high-fade':     { topVol:0.40, sideExt:0.01, fringe:0.00, tex:'smooth', sharp:false, partX:0 },
-      'buzz':          { topVol:0.12, sideExt:0.08, fringe:0.00, tex:'smooth', sharp:false, partX:0 },
-      'textured-crop': { topVol:0.40, sideExt:0.03, fringe:0.18, tex:'messy',  sharp:false, partX:0 },
-      'pompadour':     { topVol:0.70, sideExt:0.03, fringe:-0.1, tex:'smooth', sharp:false, partX:0 },
-      'quiff':         { topVol:0.55, sideExt:0.03, fringe:0.08, tex:'messy',  sharp:false, partX:0 },
-      'slick-back':    { topVol:0.25, sideExt:0.08, fringe:-0.15,tex:'smooth', sharp:false, partX:0 },
-      'side-part':     { topVol:0.35, sideExt:0.06, fringe:0.05, tex:'smooth', sharp:false, partX:-0.3 },
-      'undercut':      { topVol:0.50, sideExt:0.00, fringe:0.12, tex:'smooth', sharp:false, partX:0 },
-      'taper':         { topVol:0.30, sideExt:0.08, fringe:0.05, tex:'smooth', sharp:false, partX:0 },
-      'curly-top':     { topVol:0.55, sideExt:0.03, fringe:0.05, tex:'curly',  sharp:false, partX:0 },
-      'french-crop':   { topVol:0.28, sideExt:0.03, fringe:0.22, tex:'messy',  sharp:false, partX:0 },
-      'edgar':         { topVol:0.32, sideExt:0.02, fringe:0.25, tex:'smooth', sharp:true,  partX:0 },
-      'line-up':       { topVol:0.28, sideExt:0.03, fringe:0.10, tex:'smooth', sharp:true,  partX:0 },
-      'two-block':     { topVol:0.50, sideExt:0.00, fringe:0.10, tex:'smooth', sharp:false, partX:0 },
+    /* ── HAIR COLOR PALETTES ──────────────────────────────────── */
+    const HAIR_COLORS = {
+      black: {
+        base: 'rgba(15,12,8,',
+        mid: 'rgba(25,20,15,',
+        light: 'rgba(45,38,30,',
+        highlight: 'rgba(65,55,45,'
+      },
+      brown: {
+        base: 'rgba(60,42,25,',
+        mid: 'rgba(85,60,40,',
+        light: 'rgba(110,80,55,',
+        highlight: 'rgba(140,105,70,'
+      },
+      blonde: {
+        base: 'rgba(140,115,70,',
+        mid: 'rgba(165,140,90,',
+        light: 'rgba(190,165,115,',
+        highlight: 'rgba(220,195,140,'
+      },
+      red: {
+        base: 'rgba(120,45,30,',
+        mid: 'rgba(150,65,45,',
+        light: 'rgba(175,90,60,',
+        highlight: 'rgba(210,125,85,'
+      },
+      gray: {
+        base: 'rgba(80,80,80,',
+        mid: 'rgba(110,110,110,',
+        light: 'rgba(140,140,140,',
+        highlight: 'rgba(170,170,170,'
+      }
     };
 
-    // landmarks = array of {x,y,z} normalized 0-1, cw/ch = canvas pixel dims
-    function drawHairOverlay(ctx, landmarks, cw, ch, styleId) {
-      const s = HAIR_SHAPES[styleId];
-      if (!s || !landmarks || landmarks.length < 468) return;
+    /* ── STRAND GENERATION ─────────────────────────────────────── */
+    function generateHairStrands(styleId, colorName) {
+      const palette = HAIR_COLORS[colorName] || HAIR_COLORS.brown;
+      const colors = [palette.base, palette.mid, palette.light, palette.highlight];
+      const colorVariation = () => colors[Math.floor(Math.random() * colors.length)];
 
-      // Convert normalized coords to pixels
+      const getStrandCount = (id) => {
+        const counts = {
+          'low-fade': 250, 'mid-fade': 260, 'high-fade': 240,
+          'buzz': 150, 'textured-crop': 320, 'pompadour': 350,
+          'quiff': 330, 'slick-back': 280, 'side-part': 300,
+          'undercut': 280, 'taper': 290, 'curly-top': 340,
+          'french-crop': 200, 'edgar': 270, 'line-up': 210, 'two-block': 360
+        };
+        return counts[id] || 250;
+      };
+
+      const strandCount = getStrandCount(styleId);
+      const strands = [];
+
+      const randomPoint = () => ({ x: (Math.random() - 0.5) * 2, y: (Math.random() - 0.5) * 2 });
+      const lerp = (a, b, t) => a + (b - a) * t;
+
+      // Style-specific generation
+      if (styleId === 'buzz') {
+        // Short stubble-like strands
+        for (let i = 0; i < strandCount; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const dist = Math.random() * 0.4;
+          const points = [
+            { x: Math.cos(angle) * dist, y: Math.sin(angle) * dist },
+            { x: Math.cos(angle) * dist * 0.8, y: Math.sin(angle) * dist * 0.8 + Math.random() * 0.08 }
+          ];
+          strands.push({
+            points,
+            thickness: 0.5 + Math.random() * 0.8,
+            opacity: 0.4 + Math.random() * 0.3,
+            color: colorVariation(),
+            curl: Math.random() * 0.3
+          });
+        }
+      } else if (styleId === 'low-fade' || styleId === 'mid-fade' || styleId === 'high-fade') {
+        // Fades: short strands on top, minimal on sides
+        const fadeThreshold = styleId === 'low-fade' ? 0.3 : styleId === 'mid-fade' ? 0.25 : 0.15;
+        for (let i = 0; i < strandCount; i++) {
+          const x = (Math.random() - 0.5);
+          const y = Math.random() * -0.5;
+          if (Math.abs(x) > fadeThreshold && Math.random() > 0.3) continue;
+          const length = Math.random() * 0.2 + (Math.abs(x) < fadeThreshold ? 0.15 : 0.05);
+          const angle = Math.random() * 0.3 - 0.15;
+          const points = [
+            { x, y },
+            { x: x + Math.sin(angle) * length * 0.5, y: y - length * 0.7 }
+          ];
+          strands.push({
+            points,
+            thickness: 0.7 + Math.random() * 1.2,
+            opacity: 0.5 + Math.random() * 0.35,
+            color: colorVariation(),
+            curl: Math.random() * 0.2
+          });
+        }
+      } else if (styleId === 'textured-crop') {
+        // Messy strands pointing forward
+        for (let i = 0; i < strandCount; i++) {
+          const x = (Math.random() - 0.5) * 0.8;
+          const y = (Math.random() - 0.5) * 0.3 - 0.1;
+          const angle = Math.random() * 1.2 - 0.6;
+          const length = 0.15 + Math.random() * 0.15;
+          const points = [
+            { x, y },
+            { x: x + Math.sin(angle) * length * 0.6, y: y - length * 0.8 + Math.random() * 0.05 }
+          ];
+          strands.push({
+            points,
+            thickness: 0.8 + Math.random() * 1.4,
+            opacity: 0.4 + Math.random() * 0.4,
+            color: colorVariation(),
+            curl: 0.1 + Math.random() * 0.4
+          });
+        }
+      } else if (styleId === 'pompadour') {
+        // Long strands swept dramatically back and up
+        for (let i = 0; i < strandCount; i++) {
+          const x = (Math.random() - 0.5) * 0.9;
+          const y = Math.random() * -0.2;
+          const angle = 1.2 + Math.random() * 0.4;
+          const length = 0.35 + Math.random() * 0.25;
+          const curve = Math.sin((i / strandCount) * Math.PI) * 0.15;
+          const points = [
+            { x, y },
+            { x: x + Math.sin(angle) * length * 0.4 + curve, y: y - length * 0.5 },
+            { x: x + Math.sin(angle) * length * 0.7 + curve * 0.8, y: y - length * 0.95 }
+          ];
+          strands.push({
+            points,
+            thickness: 0.9 + Math.random() * 1.3,
+            opacity: 0.5 + Math.random() * 0.35,
+            color: colorVariation(),
+            curl: 0.2 + Math.random() * 0.3
+          });
+        }
+      } else if (styleId === 'quiff') {
+        // Volume pushed up at front, textured
+        for (let i = 0; i < strandCount; i++) {
+          const x = (Math.random() - 0.5) * 0.85;
+          const forward = Math.random() > 0.4;
+          const y = forward ? Math.random() * 0.1 - 0.05 : Math.random() * -0.25;
+          const angle = forward ? 0.4 + Math.random() * 0.6 : 1.0 + Math.random() * 0.5;
+          const length = forward ? 0.2 + Math.random() * 0.15 : 0.25 + Math.random() * 0.15;
+          const points = [
+            { x, y },
+            { x: x + Math.sin(angle) * length * 0.5, y: y - length * 0.7 }
+          ];
+          strands.push({
+            points,
+            thickness: 0.8 + Math.random() * 1.2,
+            opacity: 0.45 + Math.random() * 0.35,
+            color: colorVariation(),
+            curl: 0.15 + Math.random() * 0.35
+          });
+        }
+      } else if (styleId === 'slick-back') {
+        // All swept back smoothly
+        for (let i = 0; i < strandCount; i++) {
+          const x = (Math.random() - 0.5) * 0.9;
+          const y = Math.random() * -0.3 + 0.05;
+          const angle = 1.4 + Math.random() * 0.2;
+          const length = 0.25 + Math.random() * 0.2;
+          const points = [
+            { x, y },
+            { x: x + Math.sin(angle) * length * 0.6, y: y - length * 0.85 }
+          ];
+          strands.push({
+            points,
+            thickness: 0.8 + Math.random() * 1.1,
+            opacity: 0.55 + Math.random() * 0.3,
+            color: colorVariation(),
+            curl: 0.08 + Math.random() * 0.15
+          });
+        }
+      } else if (styleId === 'side-part') {
+        // Smooth parting to one side
+        for (let i = 0; i < strandCount; i++) {
+          const partSide = Math.random() > 0.5;
+          const x = (Math.random() - 0.5) * 0.9;
+          const y = Math.random() * -0.3;
+          const xDir = partSide ? 0.4 : -0.4;
+          const angle = 1.1 + (xDir > 0 ? 0.2 : -0.2) + Math.random() * 0.3;
+          const length = 0.2 + Math.random() * 0.2;
+          const points = [
+            { x, y },
+            { x: x + Math.sin(angle) * length * 0.5 + xDir * 0.1, y: y - length * 0.8 }
+          ];
+          strands.push({
+            points,
+            thickness: 0.8 + Math.random() * 1.2,
+            opacity: 0.5 + Math.random() * 0.35,
+            color: colorVariation(),
+            curl: 0.1 + Math.random() * 0.2
+          });
+        }
+      } else if (styleId === 'undercut') {
+        // Long on top only, nothing on sides
+        for (let i = 0; i < strandCount; i++) {
+          const x = (Math.random() - 0.5) * 0.6;
+          const y = (Math.random() - 0.5) * 0.2 - 0.15;
+          const angle = 1.0 + Math.random() * 0.5;
+          const length = 0.28 + Math.random() * 0.2;
+          const points = [
+            { x, y },
+            { x: x + Math.sin(angle) * length * 0.5, y: y - length * 0.85 }
+          ];
+          strands.push({
+            points,
+            thickness: 0.85 + Math.random() * 1.3,
+            opacity: 0.5 + Math.random() * 0.35,
+            color: colorVariation(),
+            curl: 0.12 + Math.random() * 0.25
+          });
+        }
+      } else if (styleId === 'taper') {
+        // Gradual all around
+        for (let i = 0; i < strandCount; i++) {
+          const angle2D = (i / strandCount) * Math.PI * 2;
+          const radialDist = Math.random() * 0.45;
+          const x = Math.cos(angle2D) * radialDist;
+          const y = Math.sin(angle2D) * radialDist * -0.4 - 0.1;
+          const length = 0.18 + Math.random() * 0.15;
+          const upAngle = 1.2 + Math.random() * 0.3;
+          const points = [
+            { x, y },
+            { x: x + Math.sin(upAngle) * length * 0.4, y: y - length * 0.8 }
+          ];
+          strands.push({
+            points,
+            thickness: 0.75 + Math.random() * 1.2,
+            opacity: 0.5 + Math.random() * 0.35,
+            color: colorVariation(),
+            curl: 0.1 + Math.random() * 0.2
+          });
+        }
+      } else if (styleId === 'curly-top') {
+        // Tight curl strands
+        for (let i = 0; i < strandCount; i++) {
+          const x = (Math.random() - 0.5) * 0.7;
+          const y = (Math.random() - 0.5) * 0.3 - 0.1;
+          const spiral = Math.random() * Math.PI * 3;
+          const length = 0.16 + Math.random() * 0.12;
+          const points = [
+            { x, y },
+            { x: x + Math.sin(spiral) * length * 0.3, y: y - length * 0.4 + Math.cos(spiral) * length * 0.3 }
+          ];
+          strands.push({
+            points,
+            thickness: 1.0 + Math.random() * 1.2,
+            opacity: 0.5 + Math.random() * 0.35,
+            color: colorVariation(),
+            curl: 0.6 + Math.random() * 0.35
+          });
+        }
+      } else if (styleId === 'french-crop') {
+        // Short with blunt fringe forward
+        for (let i = 0; i < strandCount; i++) {
+          const isFringe = Math.random() > 0.4;
+          const x = (Math.random() - 0.5) * 0.8;
+          const y = isFringe ? Math.random() * 0.05 : Math.random() * -0.2;
+          const angle = isFringe ? 0.3 + Math.random() * 0.3 : 0.8 + Math.random() * 0.4;
+          const length = isFringe ? 0.1 + Math.random() * 0.08 : 0.12 + Math.random() * 0.1;
+          const points = [
+            { x, y },
+            { x: x + Math.sin(angle) * length * 0.5, y: y - length * 0.7 }
+          ];
+          strands.push({
+            points,
+            thickness: 0.75 + Math.random() * 1.1,
+            opacity: 0.5 + Math.random() * 0.35,
+            color: colorVariation(),
+            curl: 0.1 + Math.random() * 0.2
+          });
+        }
+      } else if (styleId === 'edgar') {
+        // Sharp geometric with forward push
+        for (let i = 0; i < strandCount; i++) {
+          const x = (Math.random() - 0.5) * 0.75;
+          const y = Math.random() * 0.1 - 0.05;
+          const angle = 0.5 + Math.random() * 0.4;
+          const length = 0.14 + Math.random() * 0.1;
+          const points = [
+            { x, y },
+            { x: x + Math.sin(angle) * length * 0.6, y: y - length * 0.75 }
+          ];
+          strands.push({
+            points,
+            thickness: 0.8 + Math.random() * 1.1,
+            opacity: 0.5 + Math.random() * 0.35,
+            color: colorVariation(),
+            curl: 0.05 + Math.random() * 0.15
+          });
+        }
+      } else if (styleId === 'line-up') {
+        // Crisp line, strands upward
+        for (let i = 0; i < strandCount; i++) {
+          const x = (Math.random() - 0.5) * 0.7;
+          const y = Math.random() * -0.15;
+          const angle = 1.0 + Math.random() * 0.3;
+          const length = 0.16 + Math.random() * 0.12;
+          const points = [
+            { x, y },
+            { x: x + Math.sin(angle) * length * 0.4, y: y - length * 0.8 }
+          ];
+          strands.push({
+            points,
+            thickness: 0.8 + Math.random() * 1.2,
+            opacity: 0.5 + Math.random() * 0.35,
+            color: colorVariation(),
+            curl: 0.08 + Math.random() * 0.18
+          });
+        }
+      } else if (styleId === 'two-block') {
+        // Voluminous round top
+        for (let i = 0; i < strandCount; i++) {
+          const x = (Math.random() - 0.5) * 0.8;
+          const y = (Math.random() - 0.5) * 0.25 - 0.15;
+          const angle = 0.9 + Math.random() * 0.6;
+          const length = 0.24 + Math.random() * 0.18;
+          const curve = Math.sin((i / strandCount) * Math.PI * 2) * 0.1;
+          const points = [
+            { x, y },
+            { x: x + Math.sin(angle) * length * 0.5 + curve, y: y - length * 0.85 }
+          ];
+          strands.push({
+            points,
+            thickness: 0.9 + Math.random() * 1.3,
+            opacity: 0.5 + Math.random() * 0.35,
+            color: colorVariation(),
+            curl: 0.15 + Math.random() * 0.3
+          });
+        }
+      }
+
+      return strands;
+    }
+
+    /* ── RENDER HAIR TO OFFSCREEN CANVAS ──────────────────────── */
+    function renderHairToCanvas(strands, faceW, faceH) {
+      const scale = Math.min(faceW, faceH);
+      const cw = Math.ceil(faceW * 1.4);
+      const ch = Math.ceil(faceH * 1.5);
+
+      const offscreen = document.createElement('canvas');
+      offscreen.width = cw;
+      offscreen.height = ch;
+      const octx = offscreen.getContext('2d');
+
+      const centerX = cw / 2;
+      const centerY = ch * 0.35;
+
+      octx.translate(centerX, centerY);
+
+      strands.forEach(strand => {
+        if (!strand.points || strand.points.length < 2) return;
+
+        const scaledPoints = strand.points.map(p => ({
+          x: p.x * scale * 0.5,
+          y: p.y * scale * 0.5
+        }));
+
+        octx.strokeStyle = strand.color + (strand.opacity || 0.6) + ')';
+        octx.lineWidth = strand.thickness || 1;
+        octx.lineJoin = 'round';
+        octx.lineCap = 'round';
+
+        octx.beginPath();
+        octx.moveTo(scaledPoints[0].x, scaledPoints[0].y);
+
+        for (let i = 1; i < scaledPoints.length; i++) {
+          const p1 = scaledPoints[i - 1];
+          const p2 = scaledPoints[i];
+          octx.quadraticCurveTo(
+            p1.x + (p2.x - p1.x) * 0.5,
+            p1.y + (p2.y - p1.y) * 0.5 + (strand.curl || 0) * scale * 0.2,
+            p2.x,
+            p2.y
+          );
+        }
+        octx.stroke();
+      });
+
+      return offscreen;
+    }
+
+    /* ── SMOOTH LANDMARKS ──────────────────────────────────────── */
+    function smoothLandmarks(newLandmarks, prevSmoothed, alpha = 0.3) {
+      if (!prevSmoothed || prevSmoothed.length === 0) return newLandmarks;
+      return newLandmarks.map((lm, i) => ({
+        x: prevSmoothed[i].x * (1 - alpha) + lm.x * alpha,
+        y: prevSmoothed[i].y * (1 - alpha) + lm.y * alpha,
+        z: prevSmoothed[i].z * (1 - alpha) + (lm.z || 0) * alpha
+      }));
+    }
+
+    /* ── DRAW HAIR OVERLAY ────────────────────────────────────── */
+    function drawHairOverlay(ctx, landmarks, cw, ch, styleId, hairColor, cacheRef) {
+      if (!landmarks || landmarks.length < 468) return;
+
       const p = (i) => ({ x: landmarks[i].x * cw, y: landmarks[i].y * ch });
       const forehead = p(10), lTemple = p(234), rTemple = p(454), chin = p(152);
 
@@ -163,99 +538,23 @@
       const faceH = Math.hypot(chin.x - forehead.x, chin.y - forehead.y);
       if (faceW < 20 || faceH < 20) return;
 
+      const cacheKey = `${styleId}-${hairColor}`;
+      if (!cacheRef.current) cacheRef.current = {};
+
+      if (!cacheRef.current[cacheKey]) {
+        const strands = generateHairStrands(styleId, hairColor);
+        cacheRef.current[cacheKey] = renderHairToCanvas(strands, faceW, faceH);
+      }
+
+      const hairCanvas = cacheRef.current[cacheKey];
       const cx = (lTemple.x + rTemple.x) / 2;
       const cy = forehead.y;
       const angle = Math.atan2(rTemple.y - lTemple.y, rTemple.x - lTemple.x);
-      const hw = faceW / 2;
 
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(angle);
-
-      const topH = faceH * s.topVol;
-      const sideW = faceW * s.sideExt;
-      const fringeY = faceH * s.fringe;
-      const lx = -(hw + sideW);
-      const rx = hw + sideW;
-
-      // Main hair shape
-      ctx.beginPath();
-      ctx.moveTo(lx, 0);
-      ctx.bezierCurveTo(lx - sideW * 0.5, -topH * 0.3, lx, -topH * 0.7, -hw * 0.6, -topH);
-
-      if (s.partX !== 0) {
-        const px = hw * s.partX;
-        ctx.bezierCurveTo(-hw * 0.3, -topH * 1.15, px - hw * 0.15, -topH * 0.7, px, -topH * 0.3);
-        ctx.bezierCurveTo(px + hw * 0.1, -topH * 0.9, hw * 0.3, -topH * 1.15, hw * 0.6, -topH);
-      } else {
-        ctx.bezierCurveTo(-hw * 0.2, -topH * 1.15, hw * 0.2, -topH * 1.15, hw * 0.6, -topH);
-      }
-
-      ctx.bezierCurveTo(rx, -topH * 0.7, rx + sideW * 0.5, -topH * 0.3, rx, 0);
-
-      if (fringeY > 0) {
-        if (s.sharp) {
-          ctx.lineTo(rx * 0.95, fringeY);
-          ctx.lineTo(lx * 0.95, fringeY);
-        } else {
-          ctx.bezierCurveTo(rx * 0.7, fringeY * 0.5, hw * 0.3, fringeY, 0, fringeY);
-          ctx.bezierCurveTo(-hw * 0.3, fringeY, lx * 0.7, fringeY * 0.5, lx, 0);
-        }
-      } else if (fringeY < 0) {
-        ctx.bezierCurveTo(rx * 0.5, fringeY * 0.3, lx * 0.5, fringeY * 0.3, lx, 0);
-      } else {
-        ctx.lineTo(lx, 0);
-      }
-      ctx.closePath();
-
-      // Gradient fill
-      const grad = ctx.createLinearGradient(0, -topH, 0, Math.max(fringeY, 0));
-      grad.addColorStop(0, 'rgba(28,20,14,0.80)');
-      grad.addColorStop(0.4, 'rgba(42,32,22,0.75)');
-      grad.addColorStop(0.8, 'rgba(35,26,18,0.70)');
-      grad.addColorStop(1, 'rgba(30,22,15,0.55)');
-      ctx.fillStyle = grad;
-      ctx.fill();
-
-      // Highlight
-      const hl = ctx.createRadialGradient(hw * 0.2, -topH * 0.6, 0, hw * 0.2, -topH * 0.6, hw * 0.5);
-      hl.addColorStop(0, 'rgba(80,60,40,0.15)');
-      hl.addColorStop(1, 'rgba(80,60,40,0)');
-      ctx.fillStyle = hl;
-      ctx.fill();
-
-      // Texture details
-      const lw = Math.max(1, faceW * 0.005);
-      if (s.tex === 'messy') {
-        ctx.strokeStyle = 'rgba(55,40,28,0.22)';
-        ctx.lineWidth = lw;
-        for (let i = 0; i < 14; i++) {
-          const tx = -hw * 0.5 + (i / 14) * hw;
-          const ty = -topH * 0.25 - (i % 3) * topH * 0.2;
-          ctx.beginPath(); ctx.moveTo(tx, ty);
-          ctx.lineTo(tx + hw * 0.06 * ((i % 2) ? 1 : -1), ty + faceH * 0.06);
-          ctx.stroke();
-        }
-      } else if (s.tex === 'curly') {
-        ctx.strokeStyle = 'rgba(55,40,28,0.18)';
-        ctx.lineWidth = lw;
-        for (let i = 0; i < 18; i++) {
-          const tx = -hw * 0.5 + (i % 6) * hw * 0.2;
-          const ty = -topH * 0.15 - Math.floor(i / 6) * topH * 0.2;
-          const r = faceW * 0.018 + (i % 3) * faceW * 0.008;
-          ctx.beginPath(); ctx.arc(tx, ty, r, 0, Math.PI * 1.6); ctx.stroke();
-        }
-      }
-
-      // Sharp edge line
-      if (s.sharp) {
-        ctx.strokeStyle = 'rgba(20,15,10,0.85)';
-        ctx.lineWidth = Math.max(1.5, faceW * 0.008);
-        ctx.beginPath();
-        const ey = fringeY > 0 ? fringeY : 0;
-        ctx.moveTo(lx * 0.95, ey); ctx.lineTo(rx * 0.95, ey); ctx.stroke();
-      }
-
+      ctx.drawImage(hairCanvas, -hairCanvas.width / 2, -hairCanvas.height * 0.4);
       ctx.restore();
     }
 
@@ -591,6 +890,7 @@
         if (tryStartId) { const i = CUTS.findIndex(h => h.id === tryStartId); return i >= 0 ? i : 0; }
         return 0;
       });
+      const [hairColor, setHairColor] = useState('brown');
       const [cameraOn, setCameraOn] = useState(false);
       const [loading, setLoading] = useState(false);
       const [cameraError, setCameraError] = useState('');
@@ -603,10 +903,15 @@
       const rafRef = useRef(null);
       const touchStartX = useRef(null);
       const idxRef = useRef(0);
+      const hairColorRef = useRef('brown');
       const lastFaceRef = useRef(null);
+      const smoothedLandmarksRef = useRef(null);
       const sendingRef = useRef(false);
+      const hairCacheRef = useRef(null);
 
       useEffect(() => { idxRef.current = idx; }, [idx]);
+      useEffect(() => { hairColorRef.current = hairColor; }, [hairColor]);
+      useEffect(() => { if (hairCacheRef.current) hairCacheRef.current = null; }, [idx, hairColor]);
 
       useEffect(() => {
         if (tryStartId) {
@@ -755,18 +1060,18 @@
           // Draw overlay using latest detected face
           ctx.clearRect(0, 0, canvas.width, canvas.height);
           if (lastFaceRef.current) {
-            drawHairOverlay(ctx, lastFaceRef.current, canvas.width, canvas.height, CUTS[idxRef.current].id);
+            // Apply temporal smoothing to landmarks
+            smoothedLandmarksRef.current = smoothLandmarks(lastFaceRef.current, smoothedLandmarksRef.current, 0.3);
 
-            // Debug: draw 4 key landmark dots (gold circles on forehead, temples, chin)
-            ctx.fillStyle = 'rgba(232,168,56,0.7)';
-            [10, 234, 454, 152].forEach(li => {
-              if (lastFaceRef.current[li]) {
-                const lm = lastFaceRef.current[li];
-                ctx.beginPath();
-                ctx.arc(lm.x * canvas.width, lm.y * canvas.height, 4, 0, Math.PI * 2);
-                ctx.fill();
-              }
-            });
+            drawHairOverlay(
+              ctx,
+              smoothedLandmarksRef.current,
+              canvas.width,
+              canvas.height,
+              CUTS[idxRef.current].id,
+              hairColorRef.current,
+              hairCacheRef
+            );
           }
 
           rafRef.current = requestAnimationFrame(loop);
@@ -888,6 +1193,30 @@
                 <span className="text-[11px] px-2.5 py-1 rounded-full bg-white/15 text-white/70 font-medium">{cut.maint} maint.</span>
                 <span className="text-[11px] px-2.5 py-1 rounded-full bg-white/15 text-white/70 font-medium">{cut.time} min</span>
               </div>
+            </div>
+            <div className="flex justify-center gap-3 mb-4">
+              {['black', 'brown', 'blonde', 'red', 'gray'].map(color => (
+                <button
+                  key={color}
+                  onClick={() => setHairColor(color)}
+                  className="transition-transform"
+                  aria-label={`${color} hair`}
+                  style={{
+                    width: '28px',
+                    height: '28px',
+                    borderRadius: '50%',
+                    backgroundColor:
+                      color === 'black' ? '#1a0f08' :
+                      color === 'brown' ? '#6b3e25' :
+                      color === 'blonde' ? '#d4a574' :
+                      color === 'red' ? '#a83020' :
+                      '#6b6b6b',
+                    border: hairColor === color ? '2px solid rgba(232,168,56,0.8)' : '2px solid transparent',
+                    boxShadow: hairColor === color ? '0 0 0 2px rgba(232,168,56,0.4)' : 'none',
+                    cursor: 'pointer'
+                  }}
+                />
+              ))}
             </div>
             <div className="flex justify-center gap-5 mb-3">
               <button onClick={prevCut} className="w-14 h-14 rounded-full bg-white/15 backdrop-blur-sm flex items-center justify-center active:scale-95 transition-transform border border-white/20">
