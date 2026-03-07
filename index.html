@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover,user-scalable=no"/>
   <meta name="theme-color" content="#111111"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
-  <title>Barber</title>
+  <title>Fade</title>
   <link rel="manifest" href="manifest.json"/>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -23,7 +23,7 @@
     @keyframes fadeIn{from{opacity:0}to{opacity:1}}
     .pulse-glow{animation:glow 2s infinite}
     @keyframes glow{0%,100%{box-shadow:0 0 0 0 rgba(232,168,56,.4)}50%{box-shadow:0 0 0 12px rgba(232,168,56,0)}}
-    video.mirror{transform:scaleX(-1)}
+    video.mirror{-webkit-transform:scaleX(-1);transform:scaleX(-1);-webkit-backface-visibility:hidden;backface-visibility:hidden}
     .img-placeholder{background:linear-gradient(135deg,#e3e3e3 25%,#f0f0f0 50%,#e3e3e3 75%);background-size:200% 200%;animation:shimmer 1.5s infinite}
     @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
   </style>
@@ -275,7 +275,7 @@
               <div className="w-8 h-8 rounded-lg bg-brand-900 flex items-center justify-center">
                 <IC.Scissors className="w-4 h-4 text-white" />
               </div>
-              <h1 className="text-2xl font-bold">Barber</h1>
+              <h1 className="text-2xl font-bold">Fade</h1>
             </div>
             <p className="text-brand-400 text-sm">Find your perfect cut.</p>
           </div>
@@ -530,10 +530,10 @@
 
       return (
         <div className="fixed inset-0 bg-black z-40 flex flex-col" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-          <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover mirror" />
-          <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-black/70 pointer-events-none" />
+          <video ref={videoRef} autoPlay playsInline muted webkit-playsinline="true" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',transform:'scaleX(-1)',WebkitTransform:'scaleX(-1)',zIndex:1}} />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-black/70 pointer-events-none" style={{zIndex:2}} />
 
-          <div className="relative z-10 flex items-center justify-between p-4 pt-12">
+          <div className="relative flex items-center justify-between p-4 pt-12" style={{zIndex:10}}>
             <button onClick={stopCamera} className="w-10 h-10 bg-black/40 backdrop-blur-sm rounded-full flex items-center justify-center">
               <IC.X className="w-5 h-5 text-white" />
             </button>
@@ -544,7 +544,7 @@
           </div>
 
           {/* Reference photo card */}
-          <div className="absolute top-24 right-3 z-10 w-28">
+          <div className="absolute top-24 right-3 w-28" style={{zIndex:10}}>
             <div className="rounded-xl overflow-hidden shadow-2xl border-2 border-white/20">
               <Img src={cut.photos[0]} alt={cut.name} className="aspect-[3/4]" />
             </div>
@@ -552,16 +552,16 @@
           </div>
 
           {/* Tap zones */}
-          <div className="flex-1 relative z-10 flex">
+          <div className="flex-1 relative flex" style={{zIndex:10}}>
             <button onClick={prevCut} className="w-1/4 h-full" aria-label="Previous style" />
             <div className="flex-1" />
             <button onClick={nextCut} className="w-1/4 h-full" aria-label="Next style" />
           </div>
 
-          <div className="absolute left-2 top-1/2 -translate-y-1/2 text-white/20 pointer-events-none z-10"><IC.Left className="w-7 h-7" /></div>
-          <div className="absolute right-2 top-1/2 -translate-y-1/2 text-white/20 pointer-events-none z-10"><IC.Right className="w-7 h-7" /></div>
+          <div className="absolute left-2 top-1/2 -translate-y-1/2 text-white/20 pointer-events-none" style={{zIndex:10}}><IC.Left className="w-7 h-7" /></div>
+          <div className="absolute right-2 top-1/2 -translate-y-1/2 text-white/20 pointer-events-none" style={{zIndex:10}}><IC.Right className="w-7 h-7" /></div>
 
-          <div className="relative z-10 px-5 pb-8">
+          <div className="relative px-5 pb-8" style={{zIndex:10}}>
             <div className="text-center mb-4">
               <h2 className="text-white text-2xl font-bold drop-shadow-lg">{cut.name}</h2>
               <p className="text-white/60 text-sm mt-1">{cut.desc.split('.')[0]}.</p>
@@ -614,7 +614,7 @@
         const text = `My haircut selection:\n\nPrimary: ${pc?.name || 'None'}\n${alts.length ? 'Alternates: ' + alts.map(c => c.name).join(', ') + '\n' : ''}${notes ? 'Notes: ' + notes : ''}`;
         try {
           if (navigator.share) {
-            await navigator.share({ title: 'Barber Selection', text });
+            await navigator.share({ title: 'Fade — My Selection', text });
           } else {
             await navigator.clipboard.writeText(text);
             setCopied(true);
