@@ -1,5 +1,5 @@
-const CACHE_NAME = 'barber-v1';
-const PRECACHE = ['/', '/index.html'];
+const CACHE_NAME = 'fade-v2';
+const PRECACHE = ['/barber/', '/barber/index.html'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(PRECACHE)));
@@ -14,7 +14,10 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  e.respondWith(
-    caches.match(e.request).then(r => r || fetch(e.request))
-  );
+  // Network-first for CDN resources so they stay updated
+  if (e.request.url.includes('cdn.') || e.request.url.includes('unpkg.') || e.request.url.includes('googleapis.')) {
+    e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+  } else {
+    e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
+  }
 });
