@@ -98,17 +98,17 @@
       { id:'curly-top', name:'Curly Top Fade', desc:'Natural curls kept on top with clean fade below. Embraces your natural texture with a sharp, defined look.', diff:'medium', time:30, freq:14, styling:'Curl cream on damp hair, air dry or diffuse. Don\u2019t touch until dry.', products:['Curl cream','Leave-in conditioner'], faces:['oval','round','heart'], hair:['curly','coily'], len:'short', tags:['modern','casual'], maint:'medium', pop:84,
         photos:[px(18129004), px(7697360), px(3993320)], angles:['Front','Side','Angle'] },
 
-      { id:'french-crop', name:'French Crop', desc:'Short all around with a blunt, straight fringe. Clean, minimal, and effortlessly cool.', diff:'easy', time:20, freq:21, styling:'Push fringe forward, apply light matte paste for texture.', products:['Matte paste'], faces:['oval','square','round'], hair:['straight','wavy'], len:'short', tags:['modern','casual'], maint:'low', pop:83,
-        photos:[px(3993320), px(14919469), px(12304508)], angles:['Front','Side','Styled'] },
+      { id:'french-crop', name:'French Crop', desc:'Short textured top with blunt forward fringe. A playful, effortless European style that\u2019s perfect for straight to wavy hair.', diff:'medium', time:25, freq:21, styling:'Texture cream on damp hair, push forward. Very low maintenance.', products:['Texture cream'], faces:['round','square','heart'], hair:['straight','wavy'], len:'short', tags:['modern','casual'], maint:'low', pop:81,
+        photos:[px(7697224), px(3105409), px(1570807)], angles:['Front','Angle','Styled'] },
 
-      { id:'edgar', name:'Edgar Cut', desc:'Sharp straight front line with textured crop. A Latin barbering staple known for its bold, geometric look.', diff:'medium', time:25, freq:10, styling:'Push hair forward, use edge control for the sharp front line.', products:['Edge control','Matte clay'], faces:['oval','square','round'], hair:['straight','wavy','curly'], len:'short', tags:['modern','bold','trendy'], maint:'medium', pop:77,
-        photos:[px(7697360), px(4663135), px(10775086)], angles:['Front','Side','Angle'] },
+      { id:'edgar', name:'Edgar', desc:'Sharp geometric lines with forward-pointing top. A bold, statement-making cut with precise definition.', diff:'hard', time:40, freq:14, styling:'Keep edges sharp. Style top forward with product for clean look.', products:['Matte clay','Razor'], faces:['square','oval'], hair:['straight','wavy'], len:'short', tags:['modern','bold'], maint:'high', pop:76,
+        photos:[px(3993320), px(7697661), px(4663135)], angles:['Front','Side','Detail'] },
 
-      { id:'line-up', name:'Line Up', desc:'Crisp straight hairline across forehead and temples. Razor-sharp edges that frame the face perfectly.', diff:'medium', time:20, freq:7, styling:'Edge control to maintain the sharp line between barber visits.', products:['Edge control'], faces:['oval','square','round','heart'], hair:['straight','curly','coily'], len:'short', tags:['modern','bold'], maint:'high', pop:81,
-        photos:[px(7697661), px(19028071), px(3105409)], angles:['Front','Detail','Angle'] },
+      { id:'line-up', name:'Line-Up', desc:'Clean, precise hairline with sharp definition. Emphasizes the edge with an upward-pointing top.', diff:'easy', time:20, freq:21, styling:'Keep hairline maintained. Style top upward with product.', products:['Light hold gel'], faces:['oval','square','round'], hair:['straight','wavy'], len:'short', tags:['modern','professional'], maint:'medium', pop:79,
+        photos:[px(19028071), px(1805600), px(2076930)], angles:['Front','Side','Detail'] },
 
-      { id:'two-block', name:'Two Block', desc:'Korean-inspired: voluminous top with blunt-cut short sides. Youthful, trendy, and full of movement.', diff:'medium', time:30, freq:21, styling:'Blow-dry for volume and movement, light wax for texture.', products:['Volumizing mousse','Light wax'], faces:['oval','round','heart'], hair:['straight','wavy'], len:'medium', tags:['modern','trendy'], maint:'medium', pop:82,
-        photos:[px(12304508), px(19907473), px(1570807)], angles:['Front','Side','Styled'] },
+      { id:'two-block', name:'Two Block', desc:'Voluminous, round top with blunt-cut sides creating stark contrast. A Korean-inspired trendy style.', diff:'hard', time:35, freq:14, styling:'Blow-dry top for volume. Apply styling cream for texture.', products:['Volume mousse','Styling cream'], faces:['round','oval','heart'], hair:['straight','wavy'], len:'medium', tags:['trendy','modern','bold'], maint:'medium', pop:83,
+        photos:[px(7697224), px(19907473), px(15946547)], angles:['Front','Side','Angle'] },
     ];
 
     const FACE_SHAPES = ['oval','round','square','heart','oblong'];
@@ -130,6 +130,22 @@
       s.onerror = () => reject(new Error('Failed to load FaceMesh script'));
       document.head.appendChild(s);
     });
+
+    /* ── LOAD THREE.JS FROM CDN ────────────────────────────────── */
+    var loadThreeJS = function() {
+      return new Promise(function(resolve, reject) {
+        if (window.THREE) { resolve(); return; }
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js';
+        s.crossOrigin = 'anonymous';
+        s.onload = function() {
+          console.log('[Fade AR] Three.js loaded');
+          resolve();
+        };
+        s.onerror = function() { reject(new Error('Failed to load Three.js')); };
+        document.head.appendChild(s);
+      });
+    };
 
     /* ── HAIR COLOR PALETTES ──────────────────────────────────── */
     const HAIR_COLORS = {
@@ -173,12 +189,167 @@
       });
     }
 
-    /* ── DRAW HAIR OVERLAY (bezier shapes + color) ─────────────── */
-    function drawHairOverlay(ctx, landmarks, cw, ch, styleId, hairColor) {
-      var s = HAIR_SHAPES[styleId];
-      if (!s || !landmarks || landmarks.length < 468) return;
+    /* ── CREATE 3D HAIR GEOMETRY (Three.js) ────────────────────── */
+    var createHairGeometry = function(styleId, colorName) {
+      var THREE = window.THREE;
+      if (!THREE) return null;
 
-      var palette = HAIR_COLORS[hairColor] || HAIR_COLORS.brown;
+      var s = HAIR_SHAPES[styleId];
+      if (!s) s = HAIR_SHAPES['low-fade'];
+
+      var palette = HAIR_COLORS[colorName] || HAIR_COLORS.brown;
+
+      // Convert palette to 0-1 range for Three.js
+      var midColor = new THREE.Color(palette.mid[0] / 255, palette.mid[1] / 255, palette.mid[2] / 255);
+
+      var group = new THREE.Group();
+
+      // Strand count based on style
+      var strandCount = 60 + Math.floor(s.topVol * 40);
+
+      var topH = 1.0 * s.topVol;
+      var sideW = 0.5 * (1 + s.sideExt * 6);
+
+      // Create hair strands
+      for (var i = 0; i < strandCount; i++) {
+        var t = (i / strandCount) * 2 - 1; // -1 to 1 across width
+
+        // Determine strand properties based on style
+        var startX, startY, startZ, endX, endY, endZ, radius;
+
+        if (styleId === 'buzz' || styleId === 'low-fade' || styleId === 'mid-fade' || styleId === 'high-fade') {
+          // Short, upward strands for fades
+          startX = t * sideW * 0.8;
+          startY = 0;
+          startZ = (Math.random() - 0.5) * 0.1;
+          endX = t * sideW * 0.7 + (Math.random() - 0.5) * 0.05;
+          endY = -topH * 0.6;
+          endZ = startZ + (Math.random() - 0.5) * 0.1;
+          radius = 0.012 - Math.abs(t) * 0.004;
+        } else if (styleId === 'pompadour' || styleId === 'quiff') {
+          // Long, swept-back strands with volume
+          startX = t * sideW * 0.8;
+          startY = 0;
+          startZ = (Math.random() - 0.5) * 0.15;
+          var dirMult = Math.abs(t) < 0.3 ? 1.2 : 0.8;
+          endX = t * sideW * 0.3;
+          endY = -topH * (0.9 + dirMult * 0.3);
+          endZ = startZ - Math.abs(t) * 0.3 + (Math.random() - 0.5) * 0.1;
+          radius = 0.014 - Math.abs(t) * 0.003;
+        } else if (styleId === 'slick-back') {
+          // Smooth, straight-back strands
+          startX = t * sideW * 0.85;
+          startY = 0;
+          startZ = (Math.random() - 0.5) * 0.08;
+          endX = t * sideW * 0.2;
+          endY = -topH * 0.5;
+          endZ = startZ - Math.abs(t) * 0.2;
+          radius = 0.013;
+        } else if (styleId === 'undercut' || styleId === 'two-block') {
+          // Only on top, disconnected from sides
+          if (Math.abs(t) > 0.1) continue; // Skip sides
+          startX = t * sideW * 1.2;
+          startY = 0;
+          startZ = (Math.random() - 0.5) * 0.1;
+          endX = t * sideW * 0.8 + (Math.random() - 0.5) * 0.08;
+          endY = -topH * 0.85;
+          endZ = startZ + (Math.random() - 0.5) * 0.12;
+          radius = 0.013;
+        } else if (styleId === 'curly-top') {
+          // Spiral/coiled strands
+          startX = t * sideW * 0.8;
+          startY = 0;
+          startZ = (Math.random() - 0.5) * 0.15;
+          endX = t * sideW * 0.7 + (Math.random() - 0.5) * 0.1;
+          endY = -topH * 0.7;
+          endZ = startZ + (Math.random() - 0.5) * 0.15;
+          radius = 0.011;
+        } else if (styleId === 'textured-crop' || styleId === 'french-crop' || styleId === 'edgar' || styleId === 'line-up') {
+          // Choppy/blunt forward-pointing strands
+          startX = t * sideW * 0.85;
+          startY = 0;
+          startZ = (Math.random() - 0.5) * 0.12;
+          endX = t * sideW * 0.8 + (Math.random() - 0.5) * 0.06;
+          endY = -topH * (0.5 + Math.random() * 0.15);
+          endZ = startZ + 0.15 + (Math.random() - 0.5) * 0.08; // Forward
+          radius = 0.011;
+        } else if (styleId === 'side-part') {
+          // Parted style - asymmetric
+          var partOffset = sideW * s.partX;
+          if (t < 0) {
+            // Left side (shorter)
+            startX = t * sideW * 0.9;
+            startY = 0;
+            startZ = (Math.random() - 0.5) * 0.1;
+            endX = t * sideW * 0.6;
+            endY = -topH * 0.4;
+            endZ = startZ - Math.abs(t) * 0.15;
+          } else {
+            // Right side (longer, swept)
+            startX = t * sideW * 0.9;
+            startY = 0;
+            startZ = (Math.random() - 0.5) * 0.1;
+            endX = t * sideW * 0.3;
+            endY = -topH * 0.6;
+            endZ = startZ - t * 0.2;
+          }
+          radius = 0.012;
+        } else if (styleId === 'taper') {
+          // Gradual taper from top to sides
+          var sidePos = Math.abs(t);
+          startX = t * sideW * 0.85;
+          startY = 0;
+          startZ = (Math.random() - 0.5) * 0.08;
+          endX = t * sideW * 0.7;
+          endY = -topH * (0.3 + sidePos * 0.4);
+          endZ = startZ + (Math.random() - 0.5) * 0.08;
+          radius = 0.012 - sidePos * 0.004;
+        } else {
+          // Default style
+          startX = t * sideW * 0.8;
+          startY = 0;
+          startZ = (Math.random() - 0.5) * 0.1;
+          endX = t * sideW * 0.6;
+          endY = -topH * 0.6;
+          endZ = startZ + (Math.random() - 0.5) * 0.1;
+          radius = 0.012;
+        }
+
+        // Create curve for this strand
+        var curve = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(startX, startY, startZ),
+          new THREE.Vector3((startX + endX) * 0.3, (startY + endY) * 0.3, (startZ + endZ) * 0.3),
+          new THREE.Vector3((startX + endX) * 0.7, (startY + endY) * 0.7, (startZ + endZ) * 0.7),
+          new THREE.Vector3(endX, endY, endZ)
+        ]);
+
+        // Create tube geometry along curve
+        var tubeGeometry = new THREE.TubeGeometry(curve, 6, radius, 4, false);
+
+        // Vary color slightly per strand
+        var colorVar = 0.9 + Math.random() * 0.15;
+        var strandColor = new THREE.Color(
+          Math.min(1, midColor.r * colorVar),
+          Math.min(1, midColor.g * colorVar),
+          Math.min(1, midColor.b * colorVar)
+        );
+
+        var material = new THREE.MeshStandardMaterial({
+          color: strandColor,
+          roughness: 0.5 + Math.random() * 0.2,
+          metalness: 0.0
+        });
+
+        var mesh = new THREE.Mesh(tubeGeometry, material);
+        group.add(mesh);
+      }
+
+      return group;
+    };
+
+    /* ── UPDATE HAIR SCENE (Three.js render) ────────────────────── */
+    var updateHairScene = function(sceneRef, hairGroupRef, landmarks, cw, ch, styleId, colorName) {
+      if (!sceneRef.current || !landmarks || landmarks.length < 468) return;
 
       var px = function(i) { return { x: landmarks[i].x * cw, y: landmarks[i].y * ch }; };
       var forehead = px(10), lTemple = px(234), rTemple = px(454), chin = px(152);
@@ -190,105 +361,24 @@
       var cx = (lTemple.x + rTemple.x) / 2;
       var cy = forehead.y;
       var angle = Math.atan2(rTemple.y - lTemple.y, rTemple.x - lTemple.x);
-      var hw = faceW / 2;
+      var scale = faceW / 100;
 
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.rotate(angle);
+      // Update existing hair group or create new one
+      var oldGroup = hairGroupRef.current;
+      var newGroup = createHairGeometry(styleId, colorName);
 
-      // Helper to make rgba string
-      var rgba = function(c, a) { return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')'; };
+      if (newGroup) {
+        if (oldGroup) sceneRef.current.remove(oldGroup);
 
-      // --- Base hair volume (main shape) ---
-      var topH = faceH * s.topVol;
-      var sideW = hw * (1 + s.sideExt * 6);
-      var fringeH = faceH * s.fringe;
+        // Position in 3D space to match canvas coordinates
+        newGroup.position.set(cx, -cy, 0);
+        newGroup.rotation.z = angle;
+        newGroup.scale.set(scale, scale, scale);
 
-      // Gradient from dark at top to lighter at edges
-      var grad = ctx.createRadialGradient(0, -topH * 0.3, topH * 0.1, 0, -topH * 0.2, sideW * 1.3);
-      grad.addColorStop(0, rgba(palette.shine, 0.85));
-      grad.addColorStop(0.3, rgba(palette.light, 0.8));
-      grad.addColorStop(0.6, rgba(palette.mid, 0.75));
-      grad.addColorStop(1, rgba(palette.dark, 0.7));
-
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-
-      if (s.partX !== 0) {
-        // Side part: asymmetric shape
-        var partOffset = hw * s.partX;
-        ctx.moveTo(-sideW, 0);
-        ctx.quadraticCurveTo(-sideW * 0.8, -topH * 0.6, -hw * 0.3, -topH * 0.9);
-        ctx.quadraticCurveTo(partOffset, -topH * 1.1, hw * 0.5, -topH * 0.7);
-        ctx.quadraticCurveTo(sideW * 0.9, -topH * 0.4, sideW, 0);
-        ctx.quadraticCurveTo(sideW * 0.5, fringeH * 0.3, 0, fringeH);
-        ctx.quadraticCurveTo(-sideW * 0.5, fringeH * 0.3, -sideW, 0);
-      } else {
-        // Symmetric shape
-        ctx.moveTo(-sideW, 0);
-        ctx.bezierCurveTo(-sideW * 1.05, -topH * 0.5, -hw * 0.6, -topH * 1.05, 0, -topH);
-        ctx.bezierCurveTo(hw * 0.6, -topH * 1.05, sideW * 1.05, -topH * 0.5, sideW, 0);
-        if (fringeH > 0) {
-          ctx.quadraticCurveTo(sideW * 0.4, fringeH * 0.5, 0, fringeH);
-          ctx.quadraticCurveTo(-sideW * 0.4, fringeH * 0.5, -sideW, 0);
-        } else {
-          ctx.closePath();
-        }
+        sceneRef.current.add(newGroup);
+        hairGroupRef.current = newGroup;
       }
-      ctx.fill();
-
-      // --- Second layer: inner highlight for depth ---
-      var grad2 = ctx.createLinearGradient(0, -topH, 0, fringeH || 0);
-      grad2.addColorStop(0, rgba(palette.shine, 0.35));
-      grad2.addColorStop(0.5, rgba(palette.light, 0.15));
-      grad2.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = grad2;
-      ctx.beginPath();
-      var iW = sideW * 0.85;
-      var iH = topH * 0.9;
-      ctx.moveTo(-iW, 0);
-      ctx.bezierCurveTo(-iW, -iH * 0.5, -hw * 0.4, -iH, 0, -iH);
-      ctx.bezierCurveTo(hw * 0.4, -iH, iW, -iH * 0.5, iW, 0);
-      ctx.closePath();
-      ctx.fill();
-
-      // --- Texture lines for realism ---
-      ctx.strokeStyle = rgba(palette.dark, 0.12);
-      ctx.lineWidth = 1;
-      var lineCount = s.tex === 'stubble' ? 30 : s.tex === 'curly' ? 18 : s.tex === 'slick' ? 8 : 14;
-      for (var i = 0; i < lineCount; i++) {
-        var t = (i / (lineCount - 1)) * 2 - 1; // -1 to 1
-        var lx = t * sideW * 0.8;
-        var startY = 0;
-        var endY = -topH * (0.6 + Math.random() * 0.3) * (1 - Math.abs(t) * 0.3);
-        ctx.beginPath();
-        ctx.moveTo(lx, startY);
-        if (s.tex === 'curly') {
-          var cp1x = lx + (Math.random() - 0.5) * hw * 0.4;
-          var cp1y = startY + (endY - startY) * 0.33;
-          var cp2x = lx + (Math.random() - 0.5) * hw * 0.4;
-          var cp2y = startY + (endY - startY) * 0.66;
-          ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, lx + (Math.random() - 0.5) * 6, endY);
-        } else if (s.tex === 'choppy') {
-          ctx.quadraticCurveTo(lx + (Math.random() - 0.5) * 12, (startY + endY) / 2, lx + (Math.random() - 0.5) * 8, endY);
-        } else {
-          ctx.quadraticCurveTo(lx + t * 3, (startY + endY) / 2, lx + t * 2, endY);
-        }
-        ctx.stroke();
-      }
-
-      // --- Sharp edge line for undercut/edgar/line-up ---
-      if (s.sharp) {
-        ctx.strokeStyle = rgba(palette.dark, 0.5);
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(-sideW, 0);
-        ctx.lineTo(sideW, 0);
-        ctx.stroke();
-      }
-
-      ctx.restore();
-    }
+    };
 
     /* ── STORAGE ───────────────────────────────────────────────── */
     const load = (k, fb) => { try { const v = localStorage.getItem('b_' + k); return v ? JSON.parse(v) : fb; } catch(e) { return fb; } };
@@ -583,39 +673,24 @@
             <p className="text-xs text-brand-400 mb-3">{filtered.length} style{filtered.length !== 1 ? 's' : ''}</p>
             <div className="grid grid-cols-2 gap-3">
               {filtered.map(h => (
-                <button key={h.id} onClick={() => setDetailId(h.id)} className="text-left group">
+                <button key={h.id} onClick={() => { setDetailId(h.id); }} className="flex-shrink-0 text-left">
                   <div className="relative rounded-2xl overflow-hidden mb-1.5">
-                    <Img src={h.photos[0]} alt={h.name} className="aspect-[4/5]" />
-                    {/* Prominent style name overlay */}
-                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-3 pt-10">
-                      <p className="text-white text-sm font-bold drop-shadow-lg leading-tight">{h.name}</p>
-                      <div className="flex items-center gap-1.5 mt-1">
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${h.diff === 'easy' ? 'bg-green-500/80 text-white' : h.diff === 'medium' ? 'bg-yellow-500/80 text-white' : 'bg-red-500/80 text-white'}`}>{h.diff}</span>
-                        <span className="text-[10px] text-white/70">{h.len}</span>
-                      </div>
+                    <Img src={h.photos[0]} alt={h.name} className="w-full aspect-square" />
+                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2 pt-6">
+                      <p className="text-white text-[13px] font-bold drop-shadow">{h.name}</p>
                     </div>
-                    <button onClick={e => { e.stopPropagation(); toggleFav(h.id); }} className="absolute top-2 right-2 w-8 h-8 bg-black/30 backdrop-blur-sm rounded-full flex items-center justify-center z-10">
-                      <IC.Heart className={`w-4 h-4 ${favs.includes(h.id) ? 'text-red-500' : 'text-white'}`} filled={favs.includes(h.id)} />
-                    </button>
-                    {h.photos.length > 1 && <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/30 backdrop-blur-sm rounded-full text-white text-[10px] font-medium">{h.photos.length} views</div>}
                   </div>
-                  <p className="text-[11px] text-brand-400">{h.maint} maint. · {h.time} min</p>
+                  <p className="text-sm font-semibold truncate">{h.name}</p>
+                  <p className="text-[11px] text-brand-400">{h.diff} · {h.maint} maint.</p>
                 </button>
               ))}
             </div>
-            {filtered.length === 0 && (
-              <div className="text-center py-16">
-                <IC.Search className="w-12 h-12 text-brand-200 mx-auto mb-3" />
-                <p className="font-semibold text-brand-500">No matches</p>
-                <p className="text-sm text-brand-300 mt-1">Try adjusting your filters</p>
-              </div>
-            )}
           </div>
         </div>
       );
     }
 
-    /* ── TRY-ON (AR FACE MESH OVERLAY) ───────────────────────── */
+    /* ── TRY ON PAGE (AR with Three.js) ────────────────────────── */
     function TryOnPage() {
       const { favs, toggleFav, tryStartId, setTryStartId } = useContext(Ctx);
       const [idx, setIdx] = useState(() => {
@@ -640,6 +715,12 @@
       const smoothedLandmarksRef = useRef(null);
       const sendingRef = useRef(false);
 
+      // Three.js refs
+      const rendererRef = useRef(null);
+      const sceneRef = useRef(null);
+      const cameraRef = useRef(null);
+      const hairGroupRef = useRef(null);
+
       useEffect(() => { idxRef.current = idx; }, [idx]);
       useEffect(() => { hairColorRef.current = hairColor; }, [hairColor]);
 
@@ -659,6 +740,20 @@
           if (streamRef.current) {
             streamRef.current.getTracks().forEach(t => t.stop());
             streamRef.current = null;
+          }
+          // Cleanup Three.js
+          if (hairGroupRef.current) {
+            hairGroupRef.current.traverse(function(child) {
+              if (child.geometry) child.geometry.dispose();
+              if (child.material) child.material.dispose();
+            });
+          }
+          if (sceneRef.current && hairGroupRef.current) {
+            sceneRef.current.remove(hairGroupRef.current);
+          }
+          if (rendererRef.current) {
+            rendererRef.current.dispose();
+            rendererRef.current = null;
           }
         };
       }, []);
@@ -715,6 +810,55 @@
         }
       };
 
+      // Initialize Three.js scene
+      const initThreeJS = async () => {
+        if (rendererRef.current) return;
+        try {
+          await loadThreeJS();
+          if (!window.THREE) throw new Error('Three.js not available');
+
+          const THREE = window.THREE;
+          const canvas = canvasRef.current;
+          if (!canvas) throw new Error('Canvas not found');
+
+          // Create scene
+          const scene = new THREE.Scene();
+          scene.background = null;
+          sceneRef.current = scene;
+
+          // Create camera (orthographic for 2D-like rendering)
+          const w = canvas.width;
+          const h = canvas.height;
+          const camera = new THREE.PerspectiveCamera(
+            60,
+            w / h,
+            0.1,
+            10000
+          );
+          camera.position.z = 100;
+          cameraRef.current = camera;
+
+          // Create renderer
+          const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+          renderer.setSize(w, h);
+          renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+          rendererRef.current = renderer;
+
+          // Add lights
+          const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
+          scene.add(ambientLight);
+
+          const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
+          directionalLight.position.set(0, -50, 100);
+          scene.add(directionalLight);
+
+          console.log('[Fade AR] Three.js scene initialized');
+        } catch (e) {
+          console.error('[Fade AR] Three.js init failed:', e);
+          setArError('Failed to initialize 3D rendering');
+        }
+      };
+
       const startCamera = async () => {
         setLoading(true);
         setCameraError('');
@@ -729,8 +873,8 @@
           }
           streamRef.current = stream;
           setCameraOn(true);
-          // Start loading face mesh in parallel
           initFaceMesh();
+          initThreeJS();
         } catch (e) {
           setCameraError(
             e.name === 'NotAllowedError' ? 'Camera access denied. Check your browser permissions.' :
@@ -752,6 +896,13 @@
             if (canvasRef.current) {
               canvasRef.current.width = video.videoWidth;
               canvasRef.current.height = video.videoHeight;
+              if (cameraRef.current) {
+                cameraRef.current.aspect = video.videoWidth / video.videoHeight;
+                cameraRef.current.updateProjectionMatrix();
+              }
+              if (rendererRef.current) {
+                rendererRef.current.setSize(video.videoWidth, video.videoHeight);
+              }
             }
           };
           video.play().then(() => {
@@ -769,38 +920,46 @@
         const loop = () => {
           const video = videoRef.current;
           const canvas = canvasRef.current;
-          if (!video || !canvas) { rafRef.current = requestAnimationFrame(loop); return; }
-
-          const ctx = canvas.getContext('2d');
+          if (!video || !canvas || !rendererRef.current) { rafRef.current = requestAnimationFrame(loop); return; }
 
           // Ensure canvas matches video
           if (video.videoWidth > 0 && (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight)) {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
+            if (cameraRef.current) {
+              cameraRef.current.aspect = video.videoWidth / video.videoHeight;
+              cameraRef.current.updateProjectionMatrix();
+            }
+            if (rendererRef.current) {
+              rendererRef.current.setSize(video.videoWidth, video.videoHeight);
+            }
           }
 
           frameNum++;
 
-          // Send frame to FaceMesh every 3rd frame (avoid overload on mobile)
+          // Send frame to FaceMesh every 3rd frame
           if (meshRef.current && !sendingRef.current && video.readyState >= 2 && frameNum % 3 === 0) {
             sendingRef.current = true;
             meshRef.current.send({ image: video }).catch(() => { sendingRef.current = false; });
           }
 
-          // Draw overlay using latest detected face
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          if (lastFaceRef.current) {
-            // Apply temporal smoothing to landmarks
+          // Update Three.js scene with latest landmarks
+          if (lastFaceRef.current && sceneRef.current) {
             smoothedLandmarksRef.current = smoothLandmarks(lastFaceRef.current, smoothedLandmarksRef.current, 0.35);
-
-            drawHairOverlay(
-              ctx,
+            updateHairScene(
+              sceneRef,
+              hairGroupRef,
               smoothedLandmarksRef.current,
               canvas.width,
               canvas.height,
               CUTS[idxRef.current].id,
               hairColorRef.current
             );
+          }
+
+          // Render Three.js scene
+          if (rendererRef.current && sceneRef.current && cameraRef.current) {
+            rendererRef.current.render(sceneRef.current, cameraRef.current);
           }
 
           rafRef.current = requestAnimationFrame(loop);
@@ -1117,142 +1276,95 @@
 
     /* ── BOOKING ──────────────────────────────────────────────── */
     function BookingPage() {
-      const { setPage, sels } = useContext(Ctx);
-      const [sb, setSb] = useState(null);
-      const [sd, setSd] = useState(null);
-      const [st, setSt] = useState(null);
-      const [booked, setBooked] = useState(false);
+      const { sels } = useContext(Ctx);
+      const [date, setDate] = useState('');
+      const [time, setTime] = useState('10:00');
+      const [barber, setBarber] = useState('any');
+      const [notes, setNotes] = useState('');
 
       const barbers = [
-        { id: 'b1', name: 'Marcus Williams', r: 4.9, rev: 248, sp: ['Fades', 'Designs'], dist: '0.3 mi', price: '$35' },
-        { id: 'b2', name: 'Jay Rodriguez', r: 4.8, rev: 186, sp: ['Textured', 'Curly'], dist: '0.7 mi', price: '$40' },
-        { id: 'b3', name: 'Devon Carter', r: 4.7, rev: 312, sp: ['Classic', 'Razor'], dist: '1.2 mi', price: '$30' },
-        { id: 'b4', name: 'Alex Kim', r: 4.9, rev: 167, sp: ['Korean', 'Perms'], dist: '1.5 mi', price: '$45' },
+        { id: 'any', name: 'Any Barber', avail: 8 },
+        { id: 'marcus', name: 'Marcus', avail: 3 },
+        { id: 'carlos', name: 'Carlos', avail: 5 },
+        { id: 'james', name: 'James', avail: 2 },
       ];
-      const dates = Array.from({ length: 7 }, (_, i) => {
-        const d = new Date(); d.setDate(d.getDate() + i + 1);
-        return { date: d, l: d.toLocaleDateString('en', { weekday: 'short' }), n: d.getDate(), m: d.toLocaleDateString('en', { month: 'short' }) };
-      });
-      const times = ['9:00', '9:30', '10:00', '10:30', '11:00', '11:30', '1:00', '1:30', '2:00', '2:30', '3:00', '3:30', '4:00', '4:30', '5:00'];
 
-      if (booked) return (
-        <div className="pb-24 pt-4 fade-in">
-          <div className="flex flex-col items-center py-16 px-5 text-center">
-            <div className="w-20 h-20 rounded-full bg-green-50 flex items-center justify-center mb-4"><IC.Check className="w-10 h-10 text-green-500" /></div>
-            <h2 className="text-2xl font-bold mb-2">You&rsquo;re booked!</h2>
-            <p className="text-sm text-brand-400 mb-1">with {sb.name}</p>
-            <p className="text-sm text-brand-400 mb-6">{sd.l} {sd.n} · {st}</p>
-            <button onClick={() => { setBooked(false); setSb(null); setSd(null); setSt(null); }} className="text-sm text-accent font-medium">Book another</button>
-          </div>
-        </div>
-      );
+      const times = ['09:00', '09:30', '10:00', '10:30', '11:00', '11:30', '14:00', '14:30', '15:00', '15:30', '16:00', '16:30'];
 
       return (
         <div className="pb-24 pt-4 fade-in">
-          <div className="px-5 pt-2 mb-5"><h1 className="text-2xl font-bold mb-1">Book</h1><p className="text-sm text-brand-400">Find a barber near you.</p></div>
+          <div className="px-5 pt-2 mb-5"><h1 className="text-2xl font-bold mb-1">Book Your Cut</h1><p className="text-sm text-brand-400">Reserve your appointment</p></div>
 
           {!sels.primary && (
-            <div className="mx-5 mb-5 bg-accent/10 border border-accent/20 rounded-xl p-3.5 flex items-start gap-2.5">
-              <IC.Sparkle className="w-5 h-5 text-accent flex-shrink-0 mt-0.5" />
-              <div><p className="text-sm font-medium">Select a haircut first</p><p className="text-xs text-brand-400 mt-0.5">Your barber will see your selection.</p><button onClick={() => setPage('mycuts')} className="text-xs text-accent font-semibold mt-1.5">Go to My Cuts</button></div>
+            <div className="mx-5 mb-5 bg-yellow-50 border-2 border-yellow-200 rounded-2xl p-4">
+              <p className="text-sm text-yellow-800 font-medium">Select a cut in My Cuts to book an appointment</p>
             </div>
           )}
 
-          <div className="px-5 mb-5">
-            <h3 className="font-semibold text-sm mb-3">Barbers near you</h3>
-            <div className="space-y-3">
-              {barbers.map(b => (
-                <button key={b.id} onClick={() => setSb(b)} className={`w-full text-left flex gap-3 p-3.5 rounded-2xl transition-all ${sb?.id === b.id ? 'bg-brand-900 text-white ring-2 ring-brand-900' : 'bg-brand-50'}`}>
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg ${sb?.id === b.id ? 'bg-white/20 text-white' : 'bg-brand-200 text-brand-600'}`}>{b.name.split(' ').map(n => n[0]).join('')}</div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2"><p className="font-semibold text-sm">{b.name}</p><span className={`text-xs ${sb?.id === b.id ? 'text-brand-300' : 'text-brand-400'}`}>{b.dist}</span></div>
-                    <div className="flex items-center gap-1 mt-0.5"><IC.Star className="w-3 h-3 text-accent" filled /><span className="text-xs font-medium">{b.r}</span><span className={`text-xs ${sb?.id === b.id ? 'text-brand-400' : 'text-brand-300'}`}>({b.rev})</span></div>
-                    <div className="flex gap-1 mt-1.5">{b.sp.map(s => <span key={s} className={`text-[10px] px-2 py-0.5 rounded-full ${sb?.id === b.id ? 'bg-white/15 text-white/80' : 'bg-brand-100 text-brand-500'}`}>{s}</span>)}</div>
-                  </div>
-                  <span className={`font-semibold text-sm ${sb?.id === b.id ? 'text-accent-light' : 'text-brand-600'}`}>{b.price}</span>
-                </button>
-              ))}
+          {sels.primary && (
+            <div className="px-5 mb-5">
+              <div className="bg-brand-50 rounded-2xl p-4 flex gap-3 items-start">
+                <div>
+                  <p className="text-sm font-semibold text-brand-900">{CUTS.find(h => h.id === sels.primary)?.name}</p>
+                  <p className="text-xs text-brand-400 mt-1">Selected for booking</p>
+                </div>
+              </div>
             </div>
+          )}
+
+          <div className="px-5 space-y-5">
+            <div>
+              <label className="text-sm font-semibold text-brand-900 block mb-2">Date</label>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full bg-brand-50 rounded-xl p-3.5 text-sm outline-none border-2 border-transparent focus:border-brand-200" />
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold text-brand-900 block mb-2">Time</label>
+              <select value={time} onChange={e => setTime(e.target.value)} className="w-full bg-brand-50 rounded-xl p-3.5 text-sm outline-none border-2 border-transparent focus:border-brand-200">
+                {times.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold text-brand-900 block mb-2">Barber</label>
+              <select value={barber} onChange={e => setBarber(e.target.value)} className="w-full bg-brand-50 rounded-xl p-3.5 text-sm outline-none border-2 border-transparent focus:border-brand-200">
+                {barbers.map(b => <option key={b.id} value={b.id}>{b.name} ({b.avail} available)</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold text-brand-900 block mb-2">Special requests</label>
+              <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Let us know any preferences..." className="w-full bg-brand-50 rounded-xl p-3.5 text-sm outline-none border-2 border-transparent focus:border-brand-200 resize-none h-20" />
+            </div>
+
+            <button disabled={!date || !sels.primary} className={`w-full py-3.5 rounded-xl font-semibold text-sm ${!date || !sels.primary ? 'bg-brand-200 text-brand-400 cursor-not-allowed' : 'bg-brand-900 text-white active:scale-[.98] transition-transform'}`}>
+              Confirm Booking
+            </button>
           </div>
-
-          {sb && (
-            <div className="px-5 mb-5 slide-up">
-              <h3 className="font-semibold text-sm mb-3">Date</h3>
-              <div className="flex gap-2.5 overflow-x-auto no-scrollbar">
-                {dates.map((d, i) => (
-                  <button key={i} onClick={() => setSd(d)} className={`flex-shrink-0 w-16 py-3 rounded-xl text-center transition-all ${sd === d ? 'bg-brand-900 text-white' : 'bg-brand-50'}`}>
-                    <p className={`text-xs ${sd === d ? 'text-brand-300' : 'text-brand-400'}`}>{d.l}</p>
-                    <p className="text-lg font-bold">{d.n}</p>
-                    <p className={`text-[10px] ${sd === d ? 'text-brand-300' : 'text-brand-400'}`}>{d.m}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {sd && (
-            <div className="px-5 mb-5 slide-up">
-              <h3 className="font-semibold text-sm mb-3">Time</h3>
-              <div className="grid grid-cols-3 gap-2">
-                {times.map(t => (
-                  <button key={t} onClick={() => setSt(t)} className={`py-2.5 rounded-xl text-sm font-medium transition-all ${st === t ? 'bg-brand-900 text-white' : 'bg-brand-50 active:bg-brand-100'}`}>{t}</button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {sb && sd && st && (
-            <div className="px-5 mb-5 slide-up">
-              <div className="bg-brand-50 rounded-2xl p-4 mb-3 text-sm">
-                <div className="flex justify-between"><span className="text-brand-400">Barber</span><span className="font-medium">{sb.name}</span></div>
-                <div className="flex justify-between mt-1.5"><span className="text-brand-400">When</span><span className="font-medium">{sd.l} {sd.n} at {st}</span></div>
-                <div className="flex justify-between mt-1.5"><span className="text-brand-400">Price</span><span className="font-medium">{sb.price}</span></div>
-              </div>
-              <button onClick={() => setBooked(true)} className="w-full bg-brand-900 text-white py-3.5 rounded-xl font-semibold text-sm active:scale-[.98] transition-transform">Confirm Booking</button>
-            </div>
-          )}
         </div>
       );
     }
 
-    /* ── ERROR BOUNDARY ───────────────────────────────────────── */
-    class ErrorBoundary extends React.Component {
-      constructor(props) { super(props); this.state = { hasError: false }; }
-      static getDerivedStateFromError() { return { hasError: true }; }
-      render() {
-        if (this.state.hasError) return (
-          <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center">
-            <p className="text-lg font-bold mb-2">Something went wrong</p>
-            <button onClick={() => { this.setState({ hasError: false }); window.location.reload(); }} className="bg-brand-900 text-white px-6 py-2.5 rounded-xl text-sm font-medium">Reload</button>
-          </div>
-        );
-        return this.props.children;
-      }
-    }
-
-    /* ── APP ──────────────────────────────────────────────────── */
+    /* ── MAIN APP ─────────────────────────────────────────────── */
     function App() {
       const { page } = useContext(Ctx);
       const pages = { home: HomePage, discover: DiscoverPage, tryon: TryOnPage, mycuts: MyCutsPage, booking: BookingPage };
       const Page = pages[page] || HomePage;
       return (
-        <div className="max-w-lg mx-auto min-h-screen bg-white relative">
-          <Page />
-          {page !== 'tryon' && <Nav />}
-        </div>
+        <>
+          <div className="max-w-lg mx-auto bg-white min-h-screen relative">
+            <Page />
+          </div>
+          <Nav />
+        </>
       );
     }
 
-    /* ── MOUNT ────────────────────────────────────────────────── */
-    ReactDOM.createRoot(document.getElementById('root')).render(
-      <ErrorBoundary>
-        <Provider>
-          <App />
-        </Provider>
-      </ErrorBoundary>
+    // Mount app
+    ReactDOM.render(
+      <Provider><App /></Provider>,
+      document.getElementById('root')
     );
-
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   </script>
 </body>
 </html>
